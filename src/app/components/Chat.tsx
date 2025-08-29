@@ -2,20 +2,20 @@
 
 import { useAuth } from '@/lib/auth';
 import { useChat } from '@ai-sdk/react';
-import { DefaultChatTransport } from 'ai';
+import { DefaultChatTransport, UIMessage } from 'ai';
 import { useState, useEffect, useRef } from 'react';
 import { useToast } from '@/app/hooks/use-toast';
 
-type Message = {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  createdAt: Date;
-};
+// type Message = {
+//   id: string;
+//   role: 'user' | 'assistant';
+//   content: string;
+//   createdAt: Date;
+// };
 
 export default function Chat() {
   const [status, setStatus] = useState<string>('読み込み中');
-  const [historyMessages, setHistoryMessages] = useState<Message[]>([]);
+  const [historyMessages, setHistoryMessages] = useState<UIMessage[]>([]);
   const [input, setInput] = useState('');
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
   const [inputHistory, setInputHistory] = useState<string[]>([]);
@@ -76,15 +76,8 @@ export default function Chat() {
         }
 
         const data = await response.json();
-        const initialMessages: Message[] = data.messages.map((msg: any) => ({
-          id: msg.id,
-          role: msg.role,
-          content: msg.content, // 元の形式を保持
-          createdAt: new Date(msg.createdAt),
-        }));
-
-        setHistoryMessages(initialMessages);
-        console.log(`履歴を読み込みました: ${initialMessages.length}件`);
+        setHistoryMessages(data.messages);
+        console.log(`履歴を読み込みました: ${data.messages.length}件`);
         setStatus('準備完了');
 
         // 履歴読み込み後に一番下にスクロール（アニメーションなし）
@@ -326,20 +319,17 @@ export default function Chat() {
       >
         {/* 履歴メッセージを最初に表示 */}
         {historyMessages.map((message) => {
-          // content のフォーマットを統一
+          // UIMessageのpartsからテキストを抽出
           let messageContent = '';
-          if (Array.isArray(message.content)) {
+          if (Array.isArray(message.parts)) {
             // 配列形式の場合
-            messageContent = message.content
-              .filter(part => part.type === 'text')
-              .map(part => part.text)
+            messageContent = message.parts
+              .filter((part: any) => part.type === 'text')
+              .map((part: any) => part.text)
               .join('');
-          } else if (typeof message.content === 'string') {
-            // 文字列形式の場合
-            messageContent = message.content;
           } else {
             // その他の形式の場合
-            messageContent = JSON.stringify(message.content);
+            messageContent = JSON.stringify(message.parts);
           }
 
           return (

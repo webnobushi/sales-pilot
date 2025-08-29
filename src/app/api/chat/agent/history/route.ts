@@ -16,24 +16,20 @@ export async function GET(req: Request) {
 
     try {
       // メッセージ履歴を取得
-      const { messages } = await memory.query({
+      const { uiMessages } = await memory.query({
         threadId,
         resourceId,
         selectBy: {
           last: limit,
         },
       });
+      console.log('uiMessages:', JSON.stringify(uiMessages, null, 2));
 
       return Response.json({
-        messages: messages.map((msg: any) => ({
-          id: msg.id,
-          role: msg.role,
-          content: msg.content,
-          createdAt: msg.createdAt,
-        })),
+        messages: uiMessages, // AI SDK v5のUIMessage形式を直接使用
         threadId,
         resourceId,
-        totalCount: messages.length,
+        totalCount: uiMessages.length,
       });
     } catch (queryError: any) {
       // スレッドが存在しない場合は空の配列を返す
