@@ -14,7 +14,7 @@ type Message = {
 };
 
 export default function Chat() {
-  const [status, setStatus] = useState<string>('');
+  const [status, setStatus] = useState<string>('読み込み中');
   const [historyMessages, setHistoryMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
@@ -23,6 +23,8 @@ export default function Chat() {
   const [sendStartTime, setSendStartTime] = useState<number | null>(null);
   const [responseStartTime, setResponseStartTime] = useState<number | null>(null);
   const [responseTime, setResponseTime] = useState<number | null>(null);
+  const [threadId, setThreadId] = useState<string>('default-thread');
+  const [resourceId, setResourceId] = useState<string>('default-user');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const { session } = useAuth();
@@ -30,23 +32,81 @@ export default function Chat() {
 
   const { messages, sendMessage, stop, status: chatStatus, error } = useChat({
     transport: new DefaultChatTransport({
-      api: "/api/chat",
+      api: "/api/chat/agent",
       headers: {
         Authorization: session?.access_token ? `Bearer ${session.access_token}` : '',
       },
     }),
 
     onFinish: (message) => {
-      console.log('=== DefaultWorkflow useChat onFinish ===');
+      console.log('=== Agent useChat onFinish ===');
       console.log('message:', message);
       setStatus('完了');
+
+      // レスポンス終了時の時間を測定
+      if (sendStartTime) {
+        const totalTime = Date.now() - sendStartTime;
+        console.log(`📊 総実行時間: ${totalTime}ms`);
+        setResponseTime(totalTime);
+      }
     },
     onError: (error) => {
-      console.log('=== DefaultWorkflow useChat onError ===');
+      console.log('=== Agent useChat onError ===');
       console.log('error:', error);
       setStatus('エラー');
+
+      // エラー時の時間を測定
+      if (sendStartTime) {
+        const totalTime = Date.now() - sendStartTime;
+        console.log(`📊 エラー時の実行時間: ${totalTime}ms`);
+        setResponseTime(totalTime);
+      }
     },
   });
+
+  // 初期化時にエージェントの履歴を取得
+  useEffect(() => {
+    const loadAgentHistory = async () => {
+      try {
+        setStatus('履歴読み込み中...');
+        const response = await fetch(`/api/chat/agent/history?threadId=${threadId}&resourceId=${resourceId}&limit=50`);
+
+        if (!response.ok) {
+          throw new Error('履歴の取得に失敗しました');
+        }
+
+        const data = await response.json();
+        const initialMessages: Message[] = data.messages.map((msg: any) => ({
+          id: msg.id,
+          role: msg.role,
+          content: msg.content, // 元の形式を保持
+          createdAt: new Date(msg.createdAt),
+        }));
+
+        setHistoryMessages(initialMessages);
+        console.log(`履歴を読み込みました: ${initialMessages.length}件`);
+        setStatus('準備完了');
+
+        // 履歴読み込み後に一番下にスクロール（アニメーションなし）
+        setTimeout(() => {
+          if (messagesEndRef.current) {
+            messagesEndRef.current.scrollIntoView({ behavior: 'auto' });
+          }
+        }, 100);
+
+      } catch (error) {
+        console.error('エージェント履歴の読み込みに失敗しました:', error);
+        setStatus('履歴読み込みエラー');
+        toast({
+          title: "履歴読み込みエラー",
+          description: "会話履歴の読み込みに失敗しました",
+          variant: "destructive",
+        });
+      }
+    };
+
+    loadAgentHistory();
+  }, [threadId, resourceId, toast]);
 
   // 応答開始を検知して時間を計測
   useEffect(() => {
@@ -148,15 +208,15 @@ export default function Chat() {
       });
       setHistoryIndex(-1); // 履歴インデックスをリセット
 
-      await sendMessage({
+      sendMessage({
         text: input,
         metadata: {
-          type: "workflow-resume",
+          type: "agent-chat",
           data: {
-            // todo ここでresumeDataを送信する
+            threadId,
+            resourceId,
           }
         }
-
       });
       setInput("");
     }
@@ -234,35 +294,27 @@ export default function Chat() {
     }
   };
 
-  useEffect(() => {
-    const loadMessages = async () => {
-      try {
-        const response = await fetch('/api/messages');
-        const data = await response.json();
-        const initialMessages: Message[] = data.messages.map((msg: Message) => ({
-          ...msg,
-          createdAt: msg.createdAt ? new Date(msg.createdAt) : new Date()
-        }));
-        setHistoryMessages(initialMessages);
-      } catch (error) {
-        console.error('メッセージの読み込みに失敗しました:', error);
-      } finally {
-        setStatus('読み込み中');
-      }
-    };
-
-    loadMessages();
-  }, []);
-
   return (
     <div className="max-w-4xl mx-auto p-5">
-      <h1 className="text-center mb-8 text-2xl font-bold text-gray-800">チャット</h1>
+      <h1 className="text-center mb-8 text-2xl font-bold text-gray-800">エージェントチャット</h1>
+
+      {/* ステータス表示 */}
+      <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+        <div className="text-sm text-blue-800">
+          <span className="font-semibold">ステータス:</span> {status}
+          {threadId && resourceId && (
+            <span className="ml-4">
+              <span className="font-semibold">スレッド:</span> {threadId} / <span className="font-semibold">ユーザー:</span> {resourceId}
+            </span>
+          )}
+        </div>
+      </div>
 
       {/* 応答時間表示 */}
       {responseTime !== null && (
         <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
           <div className="text-sm text-green-800">
-            <span className="font-semibold">応答開始までの時間:</span> {responseTime}ms
+            <span className="font-semibold">総実行時間:</span> {responseTime}ms
           </div>
         </div>
       )}
@@ -272,6 +324,50 @@ export default function Chat() {
         onScroll={handleScroll}
         className="h-96 border border-gray-300 rounded-lg p-5 mb-5 overflow-y-auto bg-white"
       >
+        {/* 履歴メッセージを最初に表示 */}
+        {historyMessages.map((message) => {
+          // content のフォーマットを統一
+          let messageContent = '';
+          if (Array.isArray(message.content)) {
+            // 配列形式の場合
+            messageContent = message.content
+              .filter(part => part.type === 'text')
+              .map(part => part.text)
+              .join('');
+          } else if (typeof message.content === 'string') {
+            // 文字列形式の場合
+            messageContent = message.content;
+          } else {
+            // その他の形式の場合
+            messageContent = JSON.stringify(message.content);
+          }
+
+          return (
+            <div key={message.id} className={`mb-4 flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div className={`p-3 rounded-lg max-w-[80%] min-w-[200px] ${message.role === 'user' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-800'}`}>
+                <div className="flex justify-between items-start mb-2">
+                  <div className="font-bold">
+                    {message.role === 'user' ? 'あなた' : 'アシスタント'}
+                  </div>
+                  <button
+                    onClick={() => copyToClipboard(messageContent)}
+                    className={`p-1 rounded transition-colors cursor-pointer ${message.role === 'user' ? 'text-blue-100 hover:text-white' : 'text-gray-500 hover:text-gray-700'}`}
+                    title="メッセージをコピー"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                  </button>
+                </div>
+                <div className="whitespace-pre-wrap text-sm">
+                  {messageContent}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+
+        {/* 現在のセッションのメッセージ */}
         {messages.map((message) => {
           // メッセージのテキスト内容を抽出
           const messageText = message.parts
@@ -280,39 +376,55 @@ export default function Chat() {
             .join('');
 
           return (
-            <div key={message.id} className={`mb-4 p-3 rounded-lg ${message.role === 'user' ? 'bg-blue-50' : 'bg-gray-50'
-              }`}>
-              <div className="flex justify-between items-start mb-2">
-                <div className="font-bold text-gray-800">
-                  {message.role === 'user' ? 'あなた' : 'アシスタント'}
-                </div>
-                {messageText && (
-                  <button
-                    onClick={() => copyToClipboard(messageText)}
-                    className="text-gray-500 hover:text-gray-700 p-1 rounded transition-colors cursor-pointer"
-                    title="メッセージをコピー"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                    </svg>
-                  </button>
-                )}
-              </div>
-              <div className="whitespace-pre-wrap">
-                {message.parts.map((part) => (
-                  <div key={part.type}>
-                    <div className="text-xs text-gray-600">
-                      {part.type === 'data-status' && (part.data as { status?: string })?.status}
-                    </div>
-                    <div className="text-sm text-gray-800">
-                      {part.type === 'text' && part.text}
-                    </div>
+            <div key={message.id} className={`mb-4 flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div className={`p-3 rounded-lg max-w-[80%] min-w-[200px] ${message.role === 'user' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-800'}`}>
+                <div className="flex justify-between items-start mb-2">
+                  <div className="font-bold">
+                    {message.role === 'user' ? 'あなた' : 'アシスタント'}
                   </div>
-                ))}
+                  {messageText && (
+                    <button
+                      onClick={() => copyToClipboard(messageText)}
+                      className={`p-1 rounded transition-colors cursor-pointer ${message.role === 'user' ? 'text-blue-100 hover:text-white' : 'text-gray-500 hover:text-gray-700'}`}
+                      title="メッセージをコピー"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+                <div className="whitespace-pre-wrap">
+                  {message.parts.map((part, index) => (
+                    <div key={part.type + index}>
+                      <div className={`text-xs ${message.role === 'user' ? 'text-blue-100' : 'text-gray-600'}`}>
+                        {part.type === 'data-status' && (part.data as { status?: string })?.status}
+                      </div>
+                      <div className={`text-sm ${message.role === 'user' ? 'text-white' : 'text-gray-800'}`}>
+                        {part.type === 'text' && part.text}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           );
         })}
+
+        {/* ローディング状態のアシスタントメッセージ */}
+        {chatStatus === 'submitted' && (
+          <div className="mb-4 flex justify-start">
+            <div className="p-3 rounded-lg max-w-[80%] min-w-[200px] bg-gray-100 text-gray-800">
+              <div className="flex justify-between items-start mb-2">
+                <div className="font-bold">アシスタント</div>
+              </div>
+              <div className="flex items-center space-x-2">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
+                <span className="text-sm text-gray-600">応答を生成中...</span>
+              </div>
+            </div>
+          </div>
+        )}
         <div ref={messagesEndRef} />
       </div>
 
@@ -323,20 +435,19 @@ export default function Chat() {
           </label>
           <textarea
             id="input"
-            autoComplete="on"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="defaultWorkflowに送信するメッセージを入力してください... (Enter: 送信, Shift+Enter: 改行, Cmd+↑/↓: 履歴)"
+            placeholder="メッセージを入力してください... (Enter: 送信, Shift+Enter: 改行)"
             className="w-full p-3 border border-gray-300 rounded-lg resize-none text-gray-800 bg-white"
             rows={3}
-            disabled={chatStatus === 'streaming'}
+            disabled={chatStatus === 'streaming' || chatStatus === 'submitted'}
           />
         </div>
 
         <button
           type={chatStatus === 'streaming' ? 'button' : 'submit'}
-          disabled={!input.trim() && chatStatus !== 'streaming'}
+          disabled={chatStatus === 'streaming' ? false : (!input.trim() || chatStatus === 'submitted')}
           onClick={chatStatus === 'streaming' ? handleStop : undefined}
           className={`px-4 py-2 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed ${chatStatus === 'streaming'
             ? 'bg-red-600 hover:bg-red-700'
@@ -346,6 +457,7 @@ export default function Chat() {
           {chatStatus === 'streaming' ? '停止' : chatStatus === 'submitted' ? '送信中...' : '送信'}
         </button>
       </form>
+
     </div>
   );
 }

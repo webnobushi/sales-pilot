@@ -1,3 +1,4 @@
+// AI SDK用のチャットルート
 import { openai } from '@ai-sdk/openai';
 import { streamText, convertToModelMessages } from 'ai';
 
