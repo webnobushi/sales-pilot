@@ -1,5 +1,5 @@
 // エージェントの会話履歴取得API
-import { defaultAgent } from '@/mastra/agents/defaultAgent';
+import { frontAgent } from '@/mastra/features/front/frontAgent';
 
 export async function GET(req: Request) {
   try {
@@ -9,7 +9,7 @@ export async function GET(req: Request) {
     const limit = parseInt(searchParams.get('limit') || '50');
 
     // エージェントのメモリから履歴を取得
-    const memory = await defaultAgent.getMemory();
+    const memory = await frontAgent.getMemory();
     if (!memory) {
       return Response.json({ messages: [] });
     }
@@ -23,10 +23,8 @@ export async function GET(req: Request) {
           last: limit,
         },
       });
-      console.log('uiMessages:', JSON.stringify(uiMessages, null, 2));
-
       return Response.json({
-        messages: uiMessages, // AI SDK v5のUIMessage形式を直接使用
+        messages: uiMessages,
         threadId,
         resourceId,
         totalCount: uiMessages.length,

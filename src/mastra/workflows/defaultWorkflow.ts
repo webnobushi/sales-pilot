@@ -1,8 +1,7 @@
 import { createStep, createWorkflow } from '@mastra/core/workflows';
 import { z } from 'zod';
 
-import { defaultAgent } from "@/mastra/agents/defaultAgent";
-import { PerformanceTracker, logPerformance } from "@/lib/performance";
+import { defaultAgent } from "@/mastra/agents/contextAgent";
 
 // デフォルトワークフローの入力スキーマ
 // todo ワークフロー間で共通化する。
@@ -18,12 +17,6 @@ const defaultWorkflowInputSchema = z.object({
 const defaultWorkflowOutputSchema = z.object({
   result: z.string(),
   success: z.boolean(),
-  performanceMetrics: z.object({
-    toolExecutionTime: z.number(),
-    responseGenerationTime: z.number(),
-    totalTime: z.number(),
-    toolName: z.string().optional(),
-  }).optional(),
 });
 
 // デフォルトワークフローのメインステップ
@@ -32,11 +25,8 @@ const defaultWorkflowStep = createStep({
   inputSchema: defaultWorkflowInputSchema,
   outputSchema: defaultWorkflowOutputSchema,
   execute: async ({ inputData, runtimeContext, writer }) => {
-    const tracker = new PerformanceTracker();
     let toolUsed = false;
     let toolName = 'unknown-tool';
-    let toolExecutionTime = 0;
-    let responseGenerationTime = 0;
 
     try {
       const { userInput } = inputData;
@@ -45,9 +35,6 @@ const defaultWorkflowStep = createStep({
 
       const currentUserId = runtimeContext?.get?.("currentUserId") as string;
       const threadId = currentUserId ? `user-${currentUserId}` : "user-session";
-
-      // レスポンス生成開始
-      tracker.startResponseGeneration();
 
       // defaultAgentを使用して応答を生成
       const stream = await defaultAgent.streamVNext([
@@ -85,70 +72,26 @@ const defaultWorkflowStep = createStep({
           const toolCall = chunk as any;
           toolName = toolCall.payload?.toolName || 'unknown-tool';
           toolUsed = true;
-          tracker.startToolExecution();
           console.log(`🔧 Tool call detected: ${toolName}`);
         } else if (chunk.type === 'tool-result') {
           // ツール実行完了を検出
-          toolExecutionTime = tracker.endToolExecution();
           console.log(`✅ Tool result received`);
         }
       }
 
-      // レスポンス生成完了
-      responseGenerationTime = tracker.endResponseGeneration();
-
       // 最終結果を取得
       const finalText = await stream.text;
-      const metrics = tracker.getMetrics(toolUsed ? toolName : undefined);
-
-      // 実際の時間を設定
-      metrics.toolExecutionTime = toolExecutionTime;
-      metrics.responseGenerationTime = responseGenerationTime;
-
-      // パフォーマンスをログに記録
-      logPerformance(metrics);
-
-      // 計測データを応答に含める
-      const performanceInfo = `
-📊 パフォーマンス情報:
-- 総時間: ${metrics.totalTime}ms
-- ツール実行時間: ${metrics.toolExecutionTime}ms
-- 応答生成時間: ${metrics.responseGenerationTime}ms
-- 使用ツール: ${metrics.toolName || 'なし'}
-      `.trim();
-
-      const responseWithMetrics = `${finalText}\n\n${performanceInfo}`;
-
-      // 計測データをストリーミングで送信
-      writer.write({
-        type: 'text-delta',
-        delta: '\n\n' + performanceInfo,
-        id: messageId
-      });
 
       return {
-        result: responseWithMetrics,
+        result: finalText,
         success: true,
-        performanceMetrics: {
-          toolExecutionTime: metrics.toolExecutionTime,
-          responseGenerationTime: metrics.responseGenerationTime,
-          totalTime: metrics.totalTime,
-          toolName: metrics.toolName,
-        }
       };
     } catch (error) {
       console.error('Default workflow error:', error);
-      const metrics = tracker.getMetrics(toolUsed ? toolName : undefined);
 
       return {
         result: `申し訳ございません。エラーが発生しました: ${error instanceof Error ? error.message : String(error)}`,
         success: false,
-        performanceMetrics: {
-          toolExecutionTime: metrics.toolExecutionTime,
-          responseGenerationTime: metrics.responseGenerationTime,
-          totalTime: metrics.totalTime,
-          toolName: metrics.toolName,
-        }
       };
     }
   }

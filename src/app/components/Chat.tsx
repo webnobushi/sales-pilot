@@ -5,49 +5,61 @@ import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport, UIMessage } from 'ai';
 import { useState, useEffect, useRef } from 'react';
 import { useToast } from '@/app/hooks/use-toast';
-
-// type Message = {
-//   id: string;
-//   role: 'user' | 'assistant';
-//   content: string;
-//   createdAt: Date;
-// };
+import { CustomUIMessage } from '@/mastra';
 
 export default function Chat() {
   const [status, setStatus] = useState<string>('読み込み中');
   const [historyMessages, setHistoryMessages] = useState<UIMessage[]>([]);
   const [input, setInput] = useState('');
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
-  const [inputHistory, setInputHistory] = useState<string[]>([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);
   const [sendStartTime, setSendStartTime] = useState<number | null>(null);
   const [responseStartTime, setResponseStartTime] = useState<number | null>(null);
   const [responseTime, setResponseTime] = useState<number | null>(null);
+  const sendStartTimeRef = useRef<number | null>(null);
   const [threadId, setThreadId] = useState<string>('default-thread');
   const [resourceId, setResourceId] = useState<string>('default-user');
+  const [contextAnalysis, setContextAnalysis] = useState<any>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const { session } = useAuth();
   const { toast } = useToast();
 
-  const { messages, sendMessage, stop, status: chatStatus, error } = useChat({
+  const { messages, sendMessage, setMessages, stop, status: chatStatus, error } = useChat<CustomUIMessage>({
     transport: new DefaultChatTransport({
-      api: "/api/chat/agent",
+      // api: "/api/chat/agent",
+      api: "/api/chat/workflow",
       headers: {
         Authorization: session?.access_token ? `Bearer ${session.access_token}` : '',
       },
     }),
 
-    onFinish: (message) => {
+    onFinish: async (message) => {
       console.log('=== Agent useChat onFinish ===');
-      console.log('message:', message);
-      setStatus('完了');
 
-      // レスポンス終了時の時間を測定
-      if (sendStartTime) {
-        const totalTime = Date.now() - sendStartTime;
+      // レスポンス終了時の時間を測定（ストリーミング完全終了時）
+      const startTime = sendStartTimeRef.current || sendStartTime;
+      if (startTime) {
+        const totalTime = Date.now() - startTime;
         console.log(`📊 総実行時間: ${totalTime}ms`);
         setResponseTime(totalTime);
+      } else {
+        console.log('❌ sendStartTimeがnullです');
+      }
+
+      // メッセージのレスポンスが完了したらLLM分析を実行
+      if (message.message.role === 'assistant') {
+        const contextData = await getWorkingMemory()
+        console.log('contextData:', contextData);
+        // if (contextData.shouldTriggerWorkflow) {
+        // // if (contextData.shouldTriggerWorkflow && contextData.immediateExecution) {
+        //   sendMessage({
+        //     text: "",
+        //     metadata: {
+        //       workflowName: "testWorkflow",
+        //     }
+        //   });
+        // }
       }
     },
     onError: (error) => {
@@ -56,8 +68,9 @@ export default function Chat() {
       setStatus('エラー');
 
       // エラー時の時間を測定
-      if (sendStartTime) {
-        const totalTime = Date.now() - sendStartTime;
+      const startTime = sendStartTimeRef.current || sendStartTime;
+      if (startTime) {
+        const totalTime = Date.now() - startTime;
         console.log(`📊 エラー時の実行時間: ${totalTime}ms`);
         setResponseTime(totalTime);
       }
@@ -87,6 +100,12 @@ export default function Chat() {
           }
         }, 100);
 
+        // 履歴がある場合は文脈分析を実行
+        if (data.messages.length > 0) {
+          const contextData = await getWorkingMemory()
+          console.log('contextData:', contextData);
+        }
+
       } catch (error) {
         console.error('エージェント履歴の読み込みに失敗しました:', error);
         setStatus('履歴読み込みエラー');
@@ -107,7 +126,6 @@ export default function Chat() {
       const now = Date.now();
       setResponseStartTime(now);
       const timeDiff = now - sendStartTime;
-      setResponseTime(timeDiff);
       console.log(`応答開始までの時間: ${timeDiff}ms`);
     }
   }, [chatStatus, sendStartTime, responseStartTime]);
@@ -120,6 +138,20 @@ export default function Chat() {
       setResponseTime(null);
     }
   }, [chatStatus]);
+
+
+  const getWorkingMemory = async () => {
+    const response = await fetch('/api/chat/context-analysis', {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    })
+    const result = await response.json();
+    if (result.contextData) {
+      setContextAnalysis(result.contextData);
+    }
+
+    return result.contextData;
+  }
 
   // 自動スクロール関数
   const scrollToBottom = () => {
@@ -189,26 +221,17 @@ export default function Chat() {
       // 新しい送信時に時間計測をリセット
       setResponseStartTime(null);
       setResponseTime(null);
+      sendStartTimeRef.current = null;
 
       // 送信開始時刻を記録
-      setSendStartTime(Date.now());
-
-      // 入力履歴に追加
-      const trimmedInput = input.trim();
-      setInputHistory(prev => {
-        const newHistory = [trimmedInput, ...prev.filter(item => item !== trimmedInput)].slice(0, 10);
-        return newHistory;
-      });
-      setHistoryIndex(-1); // 履歴インデックスをリセット
+      const startTime = Date.now();
+      setSendStartTime(startTime);
+      sendStartTimeRef.current = startTime;
 
       sendMessage({
         text: input,
         metadata: {
-          type: "agent-chat",
-          data: {
-            threadId,
-            resourceId,
-          }
+          runId: '123',
         }
       });
       setInput("");
@@ -219,8 +242,6 @@ export default function Chat() {
   const copyToClipboard = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
-      // コピー成功のフィードバック
-      console.log('メッセージをコピーしました');
       toast({
         title: "コピー完了",
         description: "メッセージをクリップボードにコピーしました",
@@ -238,30 +259,6 @@ export default function Chat() {
   // キーボードイベントハンドラー
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing) return;
-
-    // 上下キーで履歴を操作
-    if (e.key === "ArrowUp" && e.metaKey) {
-      e.preventDefault();
-      if (inputHistory.length > 0) {
-        const newIndex = historyIndex < inputHistory.length - 1 ? historyIndex + 1 : 0;
-        setHistoryIndex(newIndex);
-        setInput(inputHistory[newIndex]);
-      }
-      return;
-    }
-
-    if (e.key === "ArrowDown" && e.metaKey) {
-      e.preventDefault();
-      if (historyIndex > 0) {
-        const newIndex = historyIndex - 1;
-        setHistoryIndex(newIndex);
-        setInput(inputHistory[newIndex]);
-      } else if (historyIndex === 0) {
-        setHistoryIndex(-1);
-        setInput("");
-      }
-      return;
-    }
 
     // Shift + Enter → 改行
     if (e.key === "Enter" && e.shiftKey) {
@@ -287,11 +284,117 @@ export default function Chat() {
     }
   };
 
+  // LLM分析結果の表示
+  const renderLLMContextAnalysis = () => {
+    if (!contextAnalysis) return null;
+
+    return (
+      <div className="mb-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg animate-fade-in">
+        <h3 className="font-semibold text-blue-800 mb-3">
+          AI文脈分析
+          {isAnalyzing && (
+            <span className="text-xs text-blue-600 ml-2">
+              <span className="animate-spin">⏳</span> 分析中...
+            </span>
+          )}
+        </h3>
+
+        <div className="space-y-4 text-sm">
+          {/* 文脈要約 */}
+          {contextAnalysis.contextSummary && (
+            <div>
+              <strong className="text-black">文脈要約:</strong>
+              <div className="mt-1 text-black">
+                {contextAnalysis.contextSummary}
+              </div>
+            </div>
+          )}
+
+          {/* ワークフロー選択肢 */}
+          {contextAnalysis.workflowOptions && contextAnalysis.workflowOptions.length > 0 && (
+            <div>
+              <strong className="text-black">推奨ワークフロー:</strong>
+              <div className="mt-2 space-y-2">
+                {contextAnalysis.workflowOptions.map((option: any, index: number) => (
+                  <div key={index} className="p-3 bg-white border border-blue-200 rounded-lg">
+                    <div className="flex justify-between items-start mb-2">
+                      <div className="font-medium text-blue-800">{option.label}</div>
+                      <span className={`px-2 py-1 rounded text-xs ${option.confidence >= 0.8 ? 'bg-green-100 text-green-800' :
+                        option.confidence >= 0.6 ? 'bg-yellow-100 text-yellow-800' :
+                          'bg-gray-100 text-gray-800'
+                        }`}>
+                        信頼度: {Math.round(option.confidence * 100)}%
+                      </span>
+                    </div>
+                    <div className="text-xs mb-2 text-black">{option.description}</div>
+                    {option.requiredData && option.requiredData.length > 0 && (
+                      <div className="text-xs text-black">
+                        <span className="font-medium text-black">必要なデータ:</span> {option.requiredData.join(', ')}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 蓄積されたデータ */}
+          {contextAnalysis.accumulatedData && Object.keys(contextAnalysis.accumulatedData).length > 0 && (
+            <div>
+              <strong className="text-black">蓄積されたデータ:</strong>
+              <div className="mt-1 grid grid-cols-1 md:grid-cols-2 gap-2">
+                {Object.entries(contextAnalysis.accumulatedData).map(([key, value]) => (
+                  <div key={key} className="p-2 bg-white border border-blue-200 rounded text-xs">
+                    <span className="font-medium text-black">{key}:</span>
+                    <span className="ml-1 text-black">{String(value)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 不足しているデータ */}
+          {contextAnalysis.missingData && contextAnalysis.missingData.length > 0 && (
+            <div>
+              <strong className="text-black">不足しているデータ:</strong>
+              <div className="mt-1 flex flex-wrap gap-1">
+                {contextAnalysis.missingData.map((item: string, index: number) => (
+                  <span key={index} className="px-2 py-1 bg-red-100 text-red-800 rounded text-xs">
+                    {item}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ワークフロー実行フラグ */}
+          <div className="flex items-center space-x-2">
+            <span className="font-medium text-black">ワークフロー実行:</span>
+            <span className={`px-2 py-1 rounded text-xs ${contextAnalysis.shouldTriggerWorkflow
+              ? 'bg-green-100 text-green-800'
+              : 'bg-gray-100 text-gray-800'
+              }`}>
+              {contextAnalysis.shouldTriggerWorkflow ? '推奨' : '不要'}
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="max-w-4xl mx-auto p-5">
-      <h1 className="text-center mb-8 text-2xl font-bold text-gray-800">エージェントチャット</h1>
+      {/* ヘッダー */}
+      <div className="mb-6 p-4 bg-white border border-gray-200 rounded-lg">
+        <div className="flex justify-between items-center">
+          <h1 className="text-xl font-semibold text-gray-900">エージェントチャット</h1>
+        </div>
+      </div>
 
-      {/* ステータス表示 */}
+      {/* LLM文脈分析（非同期で表示） */}
+      {renderLLMContextAnalysis()}
+
+      {/* ステータス・応答時間表示 */}
       <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
         <div className="text-sm text-blue-800">
           <span className="font-semibold">ステータス:</span> {status}
@@ -300,17 +403,11 @@ export default function Chat() {
               <span className="font-semibold">スレッド:</span> {threadId} / <span className="font-semibold">ユーザー:</span> {resourceId}
             </span>
           )}
+          <span className="ml-4">
+            <span className="font-semibold">レスポンス完了までの時間:</span> {responseTime !== null ? `${responseTime}ms` : '---'}
+          </span>
         </div>
       </div>
-
-      {/* 応答時間表示 */}
-      {responseTime !== null && (
-        <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-          <div className="text-sm text-green-800">
-            <span className="font-semibold">総実行時間:</span> {responseTime}ms
-          </div>
-        </div>
-      )}
 
       <div
         ref={chatContainerRef}
@@ -387,12 +484,21 @@ export default function Chat() {
                 <div className="whitespace-pre-wrap">
                   {message.parts.map((part, index) => (
                     <div key={part.type + index}>
-                      <div className={`text-xs ${message.role === 'user' ? 'text-blue-100' : 'text-gray-600'}`}>
-                        {part.type === 'data-status' && (part.data as { status?: string })?.status}
-                      </div>
-                      <div className={`text-sm ${message.role === 'user' ? 'text-white' : 'text-gray-800'}`}>
-                        {part.type === 'text' && part.text}
-                      </div>
+                      {part.type === 'text' && (
+                        <div className={`text-sm ${message.role === 'user' ? 'text-white' : 'text-gray-800'}`}>
+                          {part.text}
+                        </div>
+                      )}
+
+                      {/* todo このカスタムデータからコンポーネント情報を取得して、コンポーネントを表示する */}
+                      {part.type === 'data-custom' && (
+                        <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded">
+                          <div className="text-xs text-green-600 font-semibold mb-1">Context:</div>
+                          <pre className="text-xs text-green-800 whitespace-pre-wrap">
+                            {JSON.stringify(part.data, null, 2)}
+                          </pre>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -402,19 +508,22 @@ export default function Chat() {
         })}
 
         {/* ローディング状態のアシスタントメッセージ */}
-        {chatStatus === 'submitted' && (
-          <div className="mb-4 flex justify-start">
-            <div className="p-3 rounded-lg max-w-[80%] min-w-[200px] bg-gray-100 text-gray-800">
-              <div className="flex justify-between items-start mb-2">
-                <div className="font-bold">アシスタント</div>
-              </div>
-              <div className="flex items-center space-x-2">
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
-                <span className="text-sm text-gray-600">応答を生成中...</span>
+        {(chatStatus === 'submitted' || chatStatus === 'streaming') &&
+          !messages.some(msg => msg.role === 'assistant' && msg.id === messages[messages.length - 1]?.id) && (
+            <div className="mb-4 flex justify-start">
+              <div className="p-3 rounded-lg max-w-[80%] min-w-[200px] bg-gray-100 text-gray-800">
+                <div className="flex justify-between items-start mb-2">
+                  <div className="font-bold">アシスタント</div>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
+                  <span className="text-sm text-gray-600">
+                    {chatStatus === 'submitted' ? '応答を生成中...' : '応答を生成中...'}
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
         <div ref={messagesEndRef} />
       </div>
 

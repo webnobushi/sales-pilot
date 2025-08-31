@@ -13,12 +13,6 @@ export async function POST(req: Request) {
   const { messages } = await req.json();
   const lastMessage = messages[messages.length - 1] as UIMessage;
 
-  // Supabaseクライアントを作成
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
-
   const stream = createUIMessageStream({
     execute: async ({ writer }) => {
       const statusId = generateId();
