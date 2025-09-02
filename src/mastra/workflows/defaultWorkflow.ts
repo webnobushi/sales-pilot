@@ -19,6 +19,47 @@ const defaultWorkflowOutputSchema = z.object({
   success: z.boolean(),
 });
 
+
+const planStep = createStep({
+  id: "plan",
+  inputSchema: defaultWorkflowInputSchema,
+  outputSchema: defaultWorkflowOutputSchema,
+  resumeSchema: z.object({
+    feedback: z.string(),
+    choice: z.string(),
+  }),
+  suspendSchema: z.object({
+    feedback: z.string(),
+    choice: z.string(),
+  }),
+  execute: async ({ inputData, resumeData, runtimeContext, suspend }) => {
+    // まずはsuspend状態を確認
+
+    // 実行の最初の部分
+    // todo planエージェントを呼び出し
+    const plan = "plan result";
+
+    if (resumeData) {
+      resumeData
+      
+      // ここで実行を中断
+      // resumeDataをmetadataで保存する
+      await suspend({ feedback: resumeData.feedback, choice: resumeData.choice });
+
+      // このコードはresume()が呼び出された後に実行される
+      // resumeDataには再開時に提供されたデータが含まれる
+      // suspendData.feedback　で再計画を実行
+      // suspendData.choice === "reject" だったら bailを呼び出し
+      return {
+        result: "re plan result",
+        success: true,
+      };
+    }
+
+    // これは初回のみ実行される
+    return { result: "initial response", success: true };
+  },
+});
 // デフォルトワークフローのメインステップ
 const defaultWorkflowStep = createStep({
   id: "default-workflow-step",
@@ -38,7 +79,6 @@ const defaultWorkflowStep = createStep({
 
       // defaultAgentを使用して応答を生成
       const stream = await defaultAgent.streamVNext([
-
         {
           role: 'user',
           content: userInput,

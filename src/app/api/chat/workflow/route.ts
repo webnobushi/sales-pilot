@@ -8,10 +8,22 @@ import {
 } from 'ai';
 
 import { defaultWorkflow } from "@/mastra/workflows/defaultWorkflow";
+import { storeMessage } from "@/mastra/util";
 
 export async function POST(req: Request) {
-  const { messages } = await req.json();
+  const { messages, threadId, resourceId } = await req.json();
   const lastMessage = messages[messages.length - 1] as UIMessage;
+
+  // ユーザからのメッセージを保存
+  storeMessage(
+    threadId || "default-thread",
+    resourceId || "default-user",
+    'user',
+    {
+      type: 'text',
+      content: lastMessage.parts.find(part => part.type === 'text')?.text || '',
+    }
+  )
 
   const stream = createUIMessageStream({
     execute: async ({ writer }) => {
@@ -53,6 +65,12 @@ export async function POST(req: Request) {
           id: messageId
         });
 
+        // 完成系のメッセージを取得するための変数
+        let finalText = "";
+        // todo これおかしい。partsの型にする？？
+        let finalData = [];
+        // todo metadataの保存も必要
+
         // ストリームを処理
         for await (const chunk of stream) {
           // console.log('Stream chunk:', chunk);
@@ -61,6 +79,7 @@ export async function POST(req: Request) {
           if (chunk.type === 'text-delta') {
             const text = (chunk as { payload: { text: string } }).payload?.text;
             if (text) {
+              finalText += text; // 完成系のテキストを蓄積
               writer.write({
                 type: 'text-delta',
                 delta: text,
@@ -68,10 +87,12 @@ export async function POST(req: Request) {
               });
             }
           } else if (chunk.type === 'step-output') {
+            console.log("from workflow step-output");
             // ToolStreamからのstep-outputを処理
             const output = (chunk as { payload: { output: { type: string; delta?: string; id?: string; data?: Record<string, unknown> } } }).payload?.output;
             if (output) {
               if (output.type === 'text-delta' && output.delta) {
+                finalText += output.delta; // 完成系のテキストを蓄積
                 writer.write({
                   type: 'text-delta',
                   delta: output.delta,
@@ -83,6 +104,18 @@ export async function POST(req: Request) {
                   id: statusId,
                   data: output.data
                 });
+              } else if (output.type === 'data-custom' && output.data) {
+                writer.write({
+                  type: 'data-custom',
+                  id: messageId,
+                  data: output.data
+                });
+                // カスタムデータを蓄積
+                finalData.push({
+                  type: 'data-custom',
+                  id: messageId,
+                  data: output.data,
+                });
               }
             }
           } else {
@@ -90,6 +123,24 @@ export async function POST(req: Request) {
             // console.log('Other chunk type:', chunk.type, chunk);
           }
         }
+
+        // 完成系のメッセージをログ出力（デバッグ用）
+        console.log('Final message:', {
+          text: finalText,
+          data: finalData,
+          messageId
+        });
+
+        storeMessage(
+          threadId || "default-thread",
+          resourceId || "default-user",
+          'assistant',
+          {
+            type: 'text',
+            content: finalText || finalData,
+            // metadata
+          }
+        )
 
         // text-endイベントを送信
         writer.write({
