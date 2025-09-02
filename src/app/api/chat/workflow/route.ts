@@ -57,6 +57,7 @@ export async function POST(req: Request) {
           type: 'data-status',
           id: statusId,
           data: { status: 'started' },
+          // transient: true, // Won't be added to message history
         });
 
         // text-startイベントを送信
@@ -87,11 +88,18 @@ export async function POST(req: Request) {
               });
             }
           } else if (chunk.type === 'step-output') {
-            console.log("from workflow step-output");
             // ToolStreamからのstep-outputを処理
             const output = (chunk as { payload: { output: { type: string; delta?: string; id?: string; data?: Record<string, unknown> } } }).payload?.output;
             if (output) {
               if (output.type === 'text-delta' && output.delta) {
+                if (finalText === '') {
+                  writer.write({
+                    type: 'data-status',
+                    id: statusId,
+                    data: { status: 'first chunk' },
+                    // transient: true, // Won't be added to message history
+                  });
+                }
                 finalText += output.delta; // 完成系のテキストを蓄積
                 writer.write({
                   type: 'text-delta',

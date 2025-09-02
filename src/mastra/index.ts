@@ -56,11 +56,16 @@ const workflowSuggestionSchema = z.object({
   suggestedAction: z.string().optional(),
 });
 
+const statusSchema = z.object({
+  status: z.string(),
+});
+
 export type CustomUIMessage = UIMessage<z.infer<typeof metadataSchema>, {
   'custom': z.infer<typeof customDataSchema>;
-  'data-debug': z.infer<typeof workingMemoryDebugSchema>;
+  'debug': z.infer<typeof workingMemoryDebugSchema>;
   'trigger-workflow': z.infer<typeof triggerWorkflowDataSchema>;
-  'data-workflow-suggestion': z.infer<typeof workflowSuggestionSchema>;
+  'workflow-suggestion': z.infer<typeof workflowSuggestionSchema>;
+  'status': z.infer<typeof statusSchema>;
 }>;
 
 export { frontMemory as defaultMemory };

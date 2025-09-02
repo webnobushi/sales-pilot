@@ -100,8 +100,6 @@ const defaultWorkflowStep = createStep({
         // console.log('Agent chunk:', chunk);
         if (chunk.type === 'text-delta') {
           const text = (chunk as { payload: { text: string } }).payload?.text;
-          // console.log('Streaming text:', text);
-
           writer.write({
             type: 'text-delta',
             delta: text,

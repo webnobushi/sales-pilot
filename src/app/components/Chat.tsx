@@ -24,6 +24,7 @@ export default function Chat() {
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const { session } = useAuth();
   const { toast } = useToast();
+  const [receivedFirstChunk, setReceivedFirstChunk] = useState(false);
 
   const { messages, sendMessage, setMessages, stop, status: chatStatus, error } = useChat<CustomUIMessage>({
     transport: new DefaultChatTransport({
@@ -33,10 +34,18 @@ export default function Chat() {
         Authorization: session?.access_token ? `Bearer ${session.access_token}` : '',
       },
     }),
+    onData: ({ data, type }) => {
+      if (type === 'data-status') {
+        // console.log('Data part received:', data);
+        // console.log('type:', type);
+        if (data.status === 'first chunk') {
+          setReceivedFirstChunk(true);
+        }
+      }
+    },
 
     onFinish: async (message) => {
       console.log('=== Agent useChat onFinish ===');
-
       // レスポンス終了時の時間を測定（ストリーミング完全終了時）
       const startTime = sendStartTimeRef.current || sendStartTime;
       if (startTime) {
@@ -215,6 +224,7 @@ export default function Chat() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (input.trim()) {
+      setReceivedFirstChunk(false);
       setStatus('送信中');
       setShouldAutoScroll(true); // 新しいメッセージ送信時に自動スクロールを有効化
 
@@ -455,7 +465,7 @@ export default function Chat() {
         })}
 
         {/* 現在のセッションのメッセージ */}
-        {messages.map((message) => {
+        {messages.map((message, index) => {
           // メッセージのテキスト内容を抽出
           const messageText = message.parts
             .filter(part => part.type === 'text')
@@ -463,7 +473,7 @@ export default function Chat() {
             .join('');
 
           return (
-            <div key={message.id} className={`mb-4 flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div key={index} className={`mb-4 flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               <div className={`p-3 rounded-lg max-w-[80%] min-w-[200px] ${message.role === 'user' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-800'}`}>
                 <div className="flex justify-between items-start mb-2">
                   <div className="font-bold">
@@ -481,7 +491,16 @@ export default function Chat() {
                     </button>
                   )}
                 </div>
+                {/* ローディング状態のアシスタントメッセージ */}
                 <div className="whitespace-pre-wrap">
+                  {!receivedFirstChunk && message.role === 'assistant' && index === messages.length - 1 && (
+                    <div className="flex items-center space-x-2">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
+                      <span className="text-sm text-gray-600">
+                        応答を生成中...
+                      </span>
+                    </div>
+                  )}
                   {message.parts.map((part, index) => (
                     <div key={part.type + index}>
                       {part.type === 'text' && (
@@ -506,24 +525,6 @@ export default function Chat() {
             </div>
           );
         })}
-
-        {/* ローディング状態のアシスタントメッセージ */}
-        {(chatStatus === 'submitted' || chatStatus === 'streaming') &&
-          !messages.some(msg => msg.role === 'assistant' && msg.id === messages[messages.length - 1]?.id) && (
-            <div className="mb-4 flex justify-start">
-              <div className="p-3 rounded-lg max-w-[80%] min-w-[200px] bg-gray-100 text-gray-800">
-                <div className="flex justify-between items-start mb-2">
-                  <div className="font-bold">アシスタント</div>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
-                  <span className="text-sm text-gray-600">
-                    {chatStatus === 'submitted' ? '応答を生成中...' : '応答を生成中...'}
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
         <div ref={messagesEndRef} />
       </div>
 
