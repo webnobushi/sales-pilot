@@ -8,6 +8,7 @@ import { useToast } from '@/app/hooks/use-toast';
 import { CustomUIMessage } from '@/mastra';
 import { ContextMemory } from '@/mastra/core/contextDefinitions';
 import { Actions } from '@/app/components/Actions';
+import Context from '@/app/components/Context';
 
 export default function Chat() {
   const [status, setStatus] = useState<string>('読み込み中');
@@ -289,60 +290,11 @@ export default function Chat() {
   };
 
   // LLM分析結果の表示
-  const renderLLMContextAnalysis = () => {
-    if (!context) return null;
-
-    return (
-      <div className="mb-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg animate-fade-in">
-        <h3 className="font-semibold text-blue-800 mb-3">
-          AI文脈分析
-          {isAnalyzing && (
-            <span className="text-xs text-blue-600 ml-2">
-              <span className="animate-spin">⏳</span> 分析中...
-            </span>
-          )}
-        </h3>
-
-        <div className="space-y-4 text-sm">
-          {/* 現在のエージェント */}
-          {context && (
-            <>
-              <h3 className="text-sm font-semibold text-blue-800 mb-2">現在の文脈</h3>
-              <p className="text-sm text-blue-700">
-                {context.currentContext === 'plan' ? '営業計画' :
-                  context.currentContext === 'list' ? '顧客データ取得' :
-                    '営業に関する相談'}
-              </p>
-              <h3 className="text-sm font-semibold text-blue-800 mb-2">現在の文脈</h3>
-              <p className="text-sm text-blue-700">
-                {context.userIntent}
-              </p>
-
-              {/* 必要な情報の状況 */}
-              {context.currentInfoList && context.currentInfoList.length > 0 && (
-                <>
-                  <h3 className="text-sm font-semibold text-blue-800 mb-2">情報収集状況</h3>
-                  <div className="space-y-2">
-                    {context.currentInfoList.map((info, index) => (
-                      <div key={index} className="text-sm">
-                        <span className="text-blue-700 font-medium">{info.name}:</span>
-                        <span className="text-blue-600 ml-2">{info.value ?? '未収集'}</span>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              )}
-            </>
-          )}
-        </div>
-      </div>
-    );
-  };
 
   return (
     <div className="max-w-4xl mx-auto p-5">
       {/* LLM文脈分析（非同期で表示） */}
-      {renderLLMContextAnalysis()}
+      <Context context={context} isAnalyzing={isAnalyzing} />
 
       {/* ステータス・応答時間表示 */}
       <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
