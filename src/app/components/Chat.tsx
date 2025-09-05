@@ -421,7 +421,14 @@ export default function Chat() {
       </div>
 
       {/* 利用可能なアクション */}
-      <Actions context={context} />
+      <Actions context={context} onClick={async (action) => {
+        const result = await action.actionHandler({ threadId, resourceId, context });
+        console.log('result:', result);
+        console.log('action:', action);
+        if (result && action.withUpdateMemoryOnComplete) {
+          await syncWorkingMemory();
+        }
+      }} />
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>

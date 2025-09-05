@@ -13,7 +13,7 @@ export const contextMemorySchema = z.object({
   currentInfoList: z.array(z.object({
     name: z.string().describe("情報の種類を識別する文字列"),
     value: z.any().describe("実際の情報の値（オブジェクト、配列、プリミティブ値など）"),
-  })).describe("LLMが判定する現在収集済みの情報リスト"),
+  })).optional().describe("LLMが判定する現在収集済みの情報リスト"),
 
   planData: z.object({
     status: z.enum(["none", "planning", "planned", "executing", "completed"]).default("none").describe("計画の現在の状態：none（なし）、planning（計画中）、planned（計画済み）、executing（実行中）、completed（完了）"),

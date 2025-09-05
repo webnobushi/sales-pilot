@@ -24,10 +24,10 @@ export const planActionDefinition: ActionDefinition = {
       label: "計画実行",
       actionHandler: async () => {
         console.log('invoke plan!!!');
-        return Promise.resolve({})
+        return Promise.resolve(true)
       },
       canExecute: (context: ContextMemory) => {
-        return context.currentContext === "plan" &&
+        return !!context.currentInfoList && context.currentContext === "plan" &&
           context.currentInfoList.some(info => info.name === "business_target") &&
           context.currentInfoList.some(info => info.name === "business_goal")
       },
@@ -38,7 +38,7 @@ export const planActionDefinition: ActionDefinition = {
       label: "営業計画決定",
       actionHandler: async () => {
         console.log('apply plan!!!');
-        return Promise.resolve({})
+        return Promise.resolve(true)
       },
       canExecute: (context: ContextMemory) => {
         return context.currentContext === "plan" &&
@@ -49,10 +49,20 @@ export const planActionDefinition: ActionDefinition = {
       id: "reset",
       type: "button" as const,
       label: "会話を中止",
-      actionHandler: async () => {
-        // todo context api によりワーキングメモリを手動でリセットする
-        return Promise.resolve({})
+      actionHandler: async ({ threadId, resourceId }) => {
+        const response = await fetch(`/api/chat/context?threadId=${threadId}&resourceId=${resourceId}`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+        });
+
+        if (response.ok) {
+          alert('会話を中止しました');
+        } else {
+          throw new Error('履歴の取得に失敗しました');
+        }
+        return true;
       },
+      withUpdateMemoryOnComplete: true,
       canExecute: (context: ContextMemory) => {
         return context.currentContext === "plan"
       },
@@ -70,6 +80,7 @@ export const generatePlanInstructions = () => {
 ユーザからの営業計画に関する問い合わせに対して、体系的に分析し、具体的なプランニングを行ってください。
 
 ## ワーキングメモリの更新ルール
+以下の情報のみ更新してください。それ以外の情報は手動で更新します。
 
 ### currentInfoList（現在の情報リスト）
 - 既に収集済みの情報があれば記録

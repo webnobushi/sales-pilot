@@ -4,10 +4,11 @@ import { frontActionDefinition } from "@/mastra/features/front/frontDefinition"
 import { planActionDefinition } from "@/mastra/features/plan/planDefinition"
 import { listDataActionDefinition } from "@/mastra/features/list-data/listDataDefinition"
 
-type Action = ActionDefinition['actions'][number];
+export type Action = ActionDefinition['actions'][number];
 
 type ActionsProps = {
   context: ContextMemory | null;
+  onClick: (action: Action) => Promise<void>;
 };
 
 const actionDefinitions: Record<string, ActionDefinition> = {
@@ -16,7 +17,7 @@ const actionDefinitions: Record<string, ActionDefinition> = {
   list: listDataActionDefinition,
 }
 
-export const Actions = ({ context }: ActionsProps) => {
+export const Actions = ({ context, onClick }: ActionsProps) => {
   const actionDefinition = actionDefinitions[context?.currentContext as keyof typeof actionDefinitions]
 
   if (!actionDefinition || !context) {
@@ -27,8 +28,7 @@ export const Actions = ({ context }: ActionsProps) => {
 
   const handleActionClick = async (action: Action) => {
     try {
-      await action.actionHandler({});
-      console.log(`アクション ${action.id} を実行しました`);
+      await onClick(action);
     } catch (error) {
       console.error('アクション実行エラー:', error);
     }

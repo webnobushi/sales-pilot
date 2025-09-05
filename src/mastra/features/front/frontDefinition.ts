@@ -25,7 +25,7 @@ export const frontActionDefinition: ActionDefinition = {
     {
       id: "plan",
       type: "button" as const,
-      label: "営業に関する相談",
+      label: "営業計画に関する相談をする",
       actionHandler: async () => {
         console.log('invoke plan!!!');
         // todo 必要な情報を引数で受け取れるようにしてメッセージを送信する

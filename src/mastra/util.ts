@@ -1,7 +1,8 @@
 import { CustomUIMessage, mastra } from "@/mastra/index";
-import { generateId, type UIMessage, type UIMessageStreamWriter } from "ai";
-import { convertMessages, MastraMessageContentV2, MastraMessageV2 } from '@mastra/core/agent';
-import { Agent, Mastra } from "@mastra/core";
+import { generateId } from "ai";
+import { convertMessages } from '@mastra/core/agent';
+import { Agent } from "@mastra/core";
+import { ContextMemory } from "@/mastra/core/contextDefinitions";
 
 // メッセージ保存用api ワークフローで手動保存する際に利用する
 export async function storeMessage(
@@ -79,4 +80,29 @@ export async function getContextWorkingMemory(
   }
 
   return null;
+}
+
+export async function resetContextWorkingMemory(
+  agent: Agent<any, any, any>,
+  threadId: string,
+  resourceId: string
+) {
+  const memory = await agent.getMemory();
+
+  const resetData: ContextMemory = {
+    currentContext: 'front',
+    userIntent: '',
+    currentInfoList: [],
+    planData: {
+      status: 'none',
+      plan: null,
+    },
+  }
+  memory?.updateWorkingMemory({
+    threadId,
+    resourceId,
+    workingMemory: JSON.stringify(resetData),
+  });
+
+  return resetData;
 }
