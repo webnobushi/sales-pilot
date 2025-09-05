@@ -1,7 +1,10 @@
 import { openai } from "@ai-sdk/openai";
 import { Agent, AgentConfig } from "@mastra/core/agent";
-import { frontMemory } from "@/mastra/features/front/frontMemory";
-import { workflowDefinitions } from "@/mastra/workflowDefinitions";
+import { generatePlanInstructions, } from "@/mastra/features/plan/planDefinition";
+import { generateListDataInstructions } from "@/mastra/features/list-data/listDataDefinition";
+import { generateFrontInstructions } from "@/mastra/features/front/frontDefinition";
+import { CommonWorkingMemory } from "@/mastra/core/contextDefinitions";
+import { contextMemory } from "@/mastra/core/contextMemory";
 
 const agentConfig: AgentConfig = {
   name: "FrontAgent",
@@ -9,27 +12,25 @@ const agentConfig: AgentConfig = {
   defaultGenerateOptions: {
     temperature: 0,
   },
-  instructions: `あなたは営業管理ツールの受付担当です。
+  instructions: ({ runtimeContext }) => {
+    // 現在の会話内容に基づいて指示を動的に生成
+    console.log('runtimeContext:', runtimeContext);
+    const currentContext = runtimeContext.get('currentContext') as CommonWorkingMemory["currentContext"];
 
-ユーザからの問い合わせに対して、どのエージェントを呼び出すかを決めてワーキングメモリに保存してください。
-具体的な回答はそれぞれの担当のエージェントに任せてください。
+    console.log('currentContext:', currentContext);
+    // 話題別の指示定義
+    const contextInstructions = {
+      front: generateFrontInstructions(),
+      plan: generatePlanInstructions(),
+      list: generateListDataInstructions(),
+    }
 
-## 利用可能なエージェント
-- listDataAgent: 営業リストデータの取得・表示に関する問い合わせ
-- planAgent: 営業プランニング・戦略に関する問い合わせ
-
-## 判断基準
-- 営業リスト、顧客データ、データ取得、リスト表示などのキーワード → listDataAgent
-- 営業計画、戦略、プランニング、売上向上などのキーワード → planAgent
-- 上記に該当しない一般的な問い合わせ → none
-
-## 注意事項 
-- ワーキングメモリの更新は**必須**です
-- ユーザーの入力に関係なく、常にワーキングメモリを更新してください
-- スキーマに従った正確なJSON形式で更新してください
-- 選択したエージェントに応じて適切な案内メッセージを返してください
-`,
-  memory: frontMemory,
+    // currentAgentに基づいて指示を選択
+    const instructions = contextInstructions[currentContext as keyof typeof contextInstructions] || contextInstructions.front;
+    console.log('instructions:', instructions);
+    return instructions;
+  },
+  memory: contextMemory,
 };
 
 export const frontAgent = new Agent(agentConfig);

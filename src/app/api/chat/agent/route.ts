@@ -1,26 +1,36 @@
 // Mastraエージェント用のチャットルート
 import { CustomUIMessage } from '@/mastra';
-import { frontAgent } from '@/mastra/features/front/frontAgent';
-import { listDataAgent } from '@/mastra/features/list-data/listDataAgent';
+import { CommonWorkingMemory } from '@/mastra/core/contextDefinitions';
+import { RuntimeContext } from '@mastra/core/runtime-context';
 import { createUIMessageStreamResponse, createUIMessageStream, generateId } from 'ai';
+import { mastra } from "@/mastra";
 
 export async function POST(req: Request) {
+  const frontAgent = mastra.getAgent('frontAgent');
   const { messages, threadId, resourceId } = await req.json();
-  // console.log('messages:', JSON.stringify(messages, null, 2));
 
   const lastMessage = messages[messages.length - 1] as CustomUIMessage;
   console.log('lastMessage:', lastMessage);
 
-  // todo 最初にワーキングメモリを参照してどのエージェントを呼び出すかを決める（今は初回向けのロジックしかない）
-  
+  // デフォルト値を設定
+  const finalThreadId = threadId || "default-thread";
+  const finalResourceId = resourceId || "default-user";
+
+  // metadataから現在の文脈を取得
+  const currentContext = (lastMessage.metadata)?.currentContext || 'front';
+
+  // currentContextの値に基づいてruntimeContextを設定
+  let runtimeContext = new RuntimeContext<{ currentContext: CommonWorkingMemory["currentContext"] }>();
+  runtimeContext.set("currentContext", currentContext);
+
   try {
-    // frontAgentのストリーミング処理を開始
     const result = await frontAgent.streamVNext([lastMessage], {
       format: 'aisdk',
       memory: {
-        thread: threadId || "default-thread",
-        resource: resourceId || "default-user",
+        thread: finalThreadId,
+        resource: finalResourceId,
       },
+      runtimeContext,
     });
 
     // ストリーミングレスポンスを作成し、処理完了後にメモリを参照
@@ -46,86 +56,129 @@ export async function POST(req: Request) {
                 type: 'text-end',
                 id: chunk.id
               });
+            } else if (chunk.type === 'tool-result' && chunk.output?.error) {
+              // ツール実行エラーが発生した場合
+              console.log('ツール実行エラー:', chunk.output.message);
+
+              // エラーメッセージを表示
+              const errorId = generateId();
+              writer.write({
+                type: 'text-start',
+                id: errorId
+              });
+              writer.write({
+                type: 'text-delta',
+                delta: '\n\n⚠️ エラーが発生しました: ' + chunk.output.message,
+                id: errorId
+              });
+              writer.write({
+                type: 'text-end',
+                id: errorId
+              });
+            } else if (chunk.type === 'finish' && chunk.finishReason === 'tool-calls') {
+              // ツール呼び出しで終了した場合、何も表示されていない可能性がある
+              console.log('ツール呼び出しで終了、応答がない場合はデフォルトメッセージを表示');
+
+              // 応答が生成されていない場合のフォールバック
+              const fallbackId = generateId();
+              writer.write({
+                type: 'text-start',
+                id: fallbackId
+              });
+              writer.write({
+                type: 'text-delta',
+                delta: '\n\n処理が完了しました。何か他にお手伝いできることはありますか？',
+                id: fallbackId
+              });
+              writer.write({
+                type: 'text-end',
+                id: fallbackId
+              });
             }
           }
 
-          // ストリーミング完了後、メモリを参照
-          const memory = await frontAgent.getMemory();
-          const workingMemory = await memory?.getWorkingMemory({
-            threadId: threadId || "default-thread",
-            resourceId: resourceId || "default-user",
-          });
+          // // 以降はエージェントを動的に切り替える場合の処理なのでフロントから指定がある場合は実行しない
+          // if (requestedAgent) {
+          //   console.log('フロントからエージェント指定されているので、処理を終了します...');
+          //   return;
+          // }
 
-          console.log('workingMemory:', workingMemory);
+          // // 更新データを確認
+          // const checkWorkingMemory = await getAgentWorkingMemory<FrontWorkingMemorySchema>(agent, finalThreadId, finalResourceId);
 
-          if (workingMemory) {
-            const parsedWorkingMemory = JSON.parse(workingMemory);
-            switch (parsedWorkingMemory.agent) {
-              case 'listDataAgent':
-                // listDataAgentの処理を実行
-                const listDataResult = await listDataAgent.streamVNext([lastMessage], {
-                  format: 'aisdk',
-                  memory: {
-                    thread: threadId || "default-thread",
-                    resource: resourceId || "default-user",
-                  },
-                });
-                console.log('listDataAgentを実行します...');
+          // console.log('updated workingMemory:', checkWorkingMemory);
 
-                // listDataAgentのストリームを実行
-                for await (const chunk of listDataResult.fullStream) {
-                  if (chunk.type === 'text-start') {
-                    writer.write({
-                      type: 'text-start',
-                      id: chunk.id
-                    });
-                  } else if (chunk.type === 'text-delta') {
-                    writer.write({
-                      type: 'text-delta',
-                      delta: chunk.text,
-                      id: chunk.id
-                    });
-                  } else if (chunk.type === 'text-end') {
-                    writer.write({
-                      type: 'text-end',
-                      id: chunk.id
-                    });
-                  }
-                }
+          // if (checkWorkingMemory) {
+          //   try {
+          //     switch (checkWorkingMemory.agent) {
+          //       case 'list':
+          //         // listDataAgentの処理を実行
+          //         const listDataResult = await listDataAgent.streamVNext([lastMessage], {
+          //           format: 'aisdk',
+          //           memory: {
+          //             thread: finalThreadId,
+          //             resource: finalResourceId,
+          //           },
+          //         });
+          //         console.log('listを実行します...');
 
-                const memory = await listDataAgent.getMemory();
-                const workingMemory = await memory?.getWorkingMemory({
-                  threadId: threadId || "default-thread",
-                  resourceId: resourceId || "default-user",
-                });
+          //         // listDataAgentのストリームを実行
+          //         for await (const chunk of listDataResult.fullStream) {
+          //           if (chunk.type === 'text-start') {
+          //             writer.write({
+          //               type: 'text-start',
+          //               id: chunk.id
+          //             });
+          //           } else if (chunk.type === 'text-delta') {
+          //             writer.write({
+          //               type: 'text-delta',
+          //               delta: chunk.text,
+          //               id: chunk.id
+          //             });
+          //           } else if (chunk.type === 'text-end') {
+          //             writer.write({
+          //               type: 'text-end',
+          //               id: chunk.id
+          //             });
+          //           }
+          //         }
 
-                console.log('listData workingMemory:', workingMemory);
-                // todo ワークフロー実行可能かをチェックする
+          //         const listDataMemory = await listDataAgent.getMemory();
+          //         const listDataWorkingMemory = await listDataMemory?.getWorkingMemory({
+          //           threadId: finalThreadId,
+          //           resourceId: finalResourceId,
+          //         });
+
+          //         console.log('listData workingMemory:', listDataWorkingMemory);
+          //         // todo ワークフロー実行可能かをチェックする
 
 
-                break;
-              case 'planAgent':
-                // planAgentの処理は別途実装
-                writer.write({
-                  type: 'text-start',
-                  id: generateId()
-                });
-                writer.write({
-                  type: 'text-delta',
-                  delta: '\n\nplanAgentの処理を実行します...',
-                  id: generateId()
-                });
-                writer.write({
-                  type: 'text-end',
-                  id: generateId()
-                });
-                break;
-              case 'none':
-              default:
-                // 追加の処理なし
-                break;
-            }
-          }
+          //         break;
+          //       case 'plan':
+          //         // planAgentの処理は別途実装
+          //         writer.write({
+          //           type: 'text-start',
+          //           id: generateId()
+          //         });
+          //         writer.write({
+          //           type: 'text-delta',
+          //           delta: '\n\nplanAgentの処理を実行します...',
+          //           id: generateId()
+          //         });
+          //         writer.write({
+          //           type: 'text-end',
+          //           id: generateId()
+          //         });
+          //         break;
+          //       case 'none':
+          //       default:
+          //         // 追加の処理なし
+          //         break;
+          //     }
+          //   } catch (error) {
+          //     console.error('Failed to parse updated working memory:', error);
+          //   }
+          // }
         },
       }),
     });

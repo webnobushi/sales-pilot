@@ -6,6 +6,8 @@ import { DefaultChatTransport, UIMessage } from 'ai';
 import { useState, useEffect, useRef } from 'react';
 import { useToast } from '@/app/hooks/use-toast';
 import { CustomUIMessage } from '@/mastra';
+import { ContextMemory } from '@/mastra/core/contextDefinitions';
+import { Actions } from '@/app/components/Actions';
 
 export default function Chat() {
   const [status, setStatus] = useState<string>('読み込み中');
@@ -18,7 +20,7 @@ export default function Chat() {
   const sendStartTimeRef = useRef<number | null>(null);
   const [threadId, setThreadId] = useState<string>('default-thread');
   const [resourceId, setResourceId] = useState<string>('default-user');
-  const [contextAnalysis, setContextAnalysis] = useState<any>(null);
+  const [context, setContext] = useState<ContextMemory | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -28,8 +30,8 @@ export default function Chat() {
 
   const { messages, sendMessage, setMessages, stop, status: chatStatus, error } = useChat<CustomUIMessage>({
     transport: new DefaultChatTransport({
-      // api: "/api/chat/agent",
-      api: "/api/chat/workflow",
+      api: "/api/chat/agent",
+      // api: "/api/chat/workflow",
       headers: {
         Authorization: session?.access_token ? `Bearer ${session.access_token}` : '',
       },
@@ -56,19 +58,12 @@ export default function Chat() {
         console.log('❌ sendStartTimeがnullです');
       }
 
-      // メッセージのレスポンスが完了したらLLM分析を実行
+      console.log('message.message.role:', message.message.role);
+      // メッセージのレスポンスが完了したらメモリを再取得
       if (message.message.role === 'assistant') {
-        const contextData = await getWorkingMemory()
-        console.log('contextData:', contextData);
-        // if (contextData.shouldTriggerWorkflow) {
-        // // if (contextData.shouldTriggerWorkflow && contextData.immediateExecution) {
-        //   sendMessage({
-        //     text: "",
-        //     metadata: {
-        //       workflowName: "testWorkflow",
-        //     }
-        //   });
-        // }
+        console.log('=== Agent useChat onFinish ===');
+        console.log('syncWorkingMemory!!');
+        await syncWorkingMemory()
       }
     },
     onError: (error) => {
@@ -111,8 +106,7 @@ export default function Chat() {
 
         // 履歴がある場合は文脈分析を実行
         if (data.messages.length > 0) {
-          const contextData = await getWorkingMemory()
-          console.log('contextData:', contextData);
+          await syncWorkingMemory()
         }
 
       } catch (error) {
@@ -149,17 +143,14 @@ export default function Chat() {
   }, [chatStatus]);
 
 
-  const getWorkingMemory = async () => {
-    const response = await fetch('/api/chat/context-analysis', {
+  const syncWorkingMemory = async () => {
+    const response = await fetch('/api/chat/context', {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     })
-    const result = await response.json();
-    if (result.contextData) {
-      setContextAnalysis(result.contextData);
-    }
-
-    return result.contextData;
+    const result = await response.json() as ContextMemory;
+    setContext(result);
+    console.log('contextData:', result);
   }
 
   // 自動スクロール関数
@@ -238,10 +229,13 @@ export default function Chat() {
       setSendStartTime(startTime);
       sendStartTimeRef.current = startTime;
 
+      // 現在のエージェントを指定してメッセージを送信
+      const currentContext = context?.currentContext || 'front';
+
       sendMessage({
         text: input,
         metadata: {
-          runId: '123',
+          currentContext,
         }
       });
       setInput("");
@@ -296,7 +290,7 @@ export default function Chat() {
 
   // LLM分析結果の表示
   const renderLLMContextAnalysis = () => {
-    if (!contextAnalysis) return null;
+    if (!context) return null;
 
     return (
       <div className="mb-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg animate-fade-in">
@@ -310,83 +304,36 @@ export default function Chat() {
         </h3>
 
         <div className="space-y-4 text-sm">
-          {/* 文脈要約 */}
-          {contextAnalysis.contextSummary && (
-            <div>
-              <strong className="text-black">文脈要約:</strong>
-              <div className="mt-1 text-black">
-                {contextAnalysis.contextSummary}
-              </div>
-            </div>
-          )}
+          {/* 現在のエージェント */}
+          {context && (
+            <>
+              <h3 className="text-sm font-semibold text-blue-800 mb-2">現在の文脈</h3>
+              <p className="text-sm text-blue-700">
+                {context.currentContext === 'plan' ? '営業計画' :
+                  context.currentContext === 'list' ? '顧客データ取得' :
+                    '営業に関する相談'}
+              </p>
+              <h3 className="text-sm font-semibold text-blue-800 mb-2">現在の文脈</h3>
+              <p className="text-sm text-blue-700">
+                {context.userIntent}
+              </p>
 
-          {/* ワークフロー選択肢 */}
-          {contextAnalysis.workflowOptions && contextAnalysis.workflowOptions.length > 0 && (
-            <div>
-              <strong className="text-black">推奨ワークフロー:</strong>
-              <div className="mt-2 space-y-2">
-                {contextAnalysis.workflowOptions.map((option: any, index: number) => (
-                  <div key={index} className="p-3 bg-white border border-blue-200 rounded-lg">
-                    <div className="flex justify-between items-start mb-2">
-                      <div className="font-medium text-blue-800">{option.label}</div>
-                      <span className={`px-2 py-1 rounded text-xs ${option.confidence >= 0.8 ? 'bg-green-100 text-green-800' :
-                        option.confidence >= 0.6 ? 'bg-yellow-100 text-yellow-800' :
-                          'bg-gray-100 text-gray-800'
-                        }`}>
-                        信頼度: {Math.round(option.confidence * 100)}%
-                      </span>
-                    </div>
-                    <div className="text-xs mb-2 text-black">{option.description}</div>
-                    {option.requiredData && option.requiredData.length > 0 && (
-                      <div className="text-xs text-black">
-                        <span className="font-medium text-black">必要なデータ:</span> {option.requiredData.join(', ')}
+              {/* 必要な情報の状況 */}
+              {context.currentInfoList && context.currentInfoList.length > 0 && (
+                <>
+                  <h3 className="text-sm font-semibold text-blue-800 mb-2">情報収集状況</h3>
+                  <div className="space-y-2">
+                    {context.currentInfoList.map((info, index) => (
+                      <div key={index} className="text-sm">
+                        <span className="text-blue-700 font-medium">{info.name}:</span>
+                        <span className="text-blue-600 ml-2">{info.value ?? '未収集'}</span>
                       </div>
-                    )}
+                    ))}
                   </div>
-                ))}
-              </div>
-            </div>
+                </>
+              )}
+            </>
           )}
-
-          {/* 蓄積されたデータ */}
-          {contextAnalysis.accumulatedData && Object.keys(contextAnalysis.accumulatedData).length > 0 && (
-            <div>
-              <strong className="text-black">蓄積されたデータ:</strong>
-              <div className="mt-1 grid grid-cols-1 md:grid-cols-2 gap-2">
-                {Object.entries(contextAnalysis.accumulatedData).map(([key, value]) => (
-                  <div key={key} className="p-2 bg-white border border-blue-200 rounded text-xs">
-                    <span className="font-medium text-black">{key}:</span>
-                    <span className="ml-1 text-black">{String(value)}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* 不足しているデータ */}
-          {contextAnalysis.missingData && contextAnalysis.missingData.length > 0 && (
-            <div>
-              <strong className="text-black">不足しているデータ:</strong>
-              <div className="mt-1 flex flex-wrap gap-1">
-                {contextAnalysis.missingData.map((item: string, index: number) => (
-                  <span key={index} className="px-2 py-1 bg-red-100 text-red-800 rounded text-xs">
-                    {item}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* ワークフロー実行フラグ */}
-          <div className="flex items-center space-x-2">
-            <span className="font-medium text-black">ワークフロー実行:</span>
-            <span className={`px-2 py-1 rounded text-xs ${contextAnalysis.shouldTriggerWorkflow
-              ? 'bg-green-100 text-green-800'
-              : 'bg-gray-100 text-gray-800'
-              }`}>
-              {contextAnalysis.shouldTriggerWorkflow ? '推奨' : '不要'}
-            </span>
-          </div>
         </div>
       </div>
     );
@@ -394,13 +341,6 @@ export default function Chat() {
 
   return (
     <div className="max-w-4xl mx-auto p-5">
-      {/* ヘッダー */}
-      <div className="mb-6 p-4 bg-white border border-gray-200 rounded-lg">
-        <div className="flex justify-between items-center">
-          <h1 className="text-xl font-semibold text-gray-900">エージェントチャット</h1>
-        </div>
-      </div>
-
       {/* LLM文脈分析（非同期で表示） */}
       {renderLLMContextAnalysis()}
 
@@ -493,14 +433,14 @@ export default function Chat() {
                 </div>
                 {/* ローディング状態のアシスタントメッセージ */}
                 <div className="whitespace-pre-wrap">
-                  {!receivedFirstChunk && message.role === 'assistant' && index === messages.length - 1 && (
+                  {/* {!receivedFirstChunk && message.role === 'assistant' && index === messages.length - 1 && (
                     <div className="flex items-center space-x-2">
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
                       <span className="text-sm text-gray-600">
                         応答を生成中...
                       </span>
                     </div>
-                  )}
+                  )} */}
                   {message.parts.map((part, index) => (
                     <div key={part.type + index}>
                       {part.type === 'text' && (
@@ -527,6 +467,9 @@ export default function Chat() {
         })}
         <div ref={messagesEndRef} />
       </div>
+
+      {/* 利用可能なアクション */}
+      <Actions context={context} />
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>

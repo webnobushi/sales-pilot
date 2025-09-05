@@ -7,7 +7,7 @@ import {
   UIMessage,
 } from 'ai';
 
-import { defaultWorkflow } from "@/mastra/workflows/defaultWorkflow";
+import { defaultWorkflow } from "@/mastra/features/sample/sampleWorkflow";
 import { storeMessage } from "@/mastra/util";
 
 export async function POST(req: Request) {

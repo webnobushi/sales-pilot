@@ -1,6 +1,7 @@
 import { CustomUIMessage, mastra } from "@/mastra/index";
 import { generateId, type UIMessage, type UIMessageStreamWriter } from "ai";
 import { convertMessages, MastraMessageContentV2, MastraMessageV2 } from '@mastra/core/agent';
+import { Agent, Mastra } from "@mastra/core";
 
 // メッセージ保存用api ワークフローで手動保存する際に利用する
 export async function storeMessage(
@@ -49,4 +50,33 @@ export async function storeMessage(
   } catch (error) {
     console.error('Failed to save message to storage:', error);
   }
+}
+
+export async function getContextWorkingMemory(
+  agent: Agent<any, any, any>,
+  threadId: string,
+  resourceId: string
+) {
+
+  const memory = await agent.getMemory();
+
+  if (!memory) {
+    console.warn('Memory not available for agent');
+    return null;
+  }
+
+  try {
+    const workingMemory = await memory.getWorkingMemory({
+      threadId,
+      resourceId,
+    });
+
+    if (workingMemory) {
+      return JSON.parse(workingMemory);
+    }
+  } catch (error) {
+    console.error('Failed to get working memory:', error);
+  }
+
+  return null;
 }

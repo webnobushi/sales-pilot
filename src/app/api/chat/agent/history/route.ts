@@ -1,7 +1,7 @@
-// エージェントの会話履歴取得API
-import { frontAgent } from '@/mastra/features/front/frontAgent';
+import { mastra } from "@/mastra";
 
 export async function GET(req: Request) {
+  const frontAgent = mastra.getAgent('frontAgent');
   try {
     const { searchParams } = new URL(req.url);
     const threadId = searchParams.get('threadId') || "default-thread";
@@ -64,7 +64,7 @@ export async function GET(req: Request) {
           last: limit,
         },
       });
-      console.log('uiMessages:', uiMessages);
+      // console.log('uiMessages:', uiMessages);
       return Response.json({
         messages: uiMessages,
         threadId,
