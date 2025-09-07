@@ -3,6 +3,7 @@ import { generateId } from "ai";
 import { convertMessages } from '@mastra/core/agent';
 import { Agent } from "@mastra/core";
 import { ContextMemory } from "@/mastra/core/contextDefinitions";
+import { frontAgent } from "@/mastra/features/front/frontAgent";
 
 // メッセージ保存用api ワークフローで手動保存する際に利用する
 export async function storeMessage(
@@ -54,12 +55,11 @@ export async function storeMessage(
 }
 
 export async function getContextWorkingMemory(
-  agent: Agent<any, any, any>,
   threadId: string,
   resourceId: string
 ) {
 
-  const memory = await agent.getMemory();
+  const memory = await frontAgent.getMemory();
 
   if (!memory) {
     console.warn('Memory not available for agent');
@@ -74,6 +74,8 @@ export async function getContextWorkingMemory(
 
     if (workingMemory) {
       return JSON.parse(workingMemory);
+    } else {
+      return resetContextWorkingMemory(threadId, resourceId);
     }
   } catch (error) {
     console.error('Failed to get working memory:', error);
@@ -82,12 +84,52 @@ export async function getContextWorkingMemory(
   return null;
 }
 
+export async function updateContextWorkingMemory(
+  threadId: string,
+  resourceId: string,
+  updates: Partial<ContextMemory>
+) {
+  const memory = await frontAgent.getMemory();
+
+  if (!memory) {
+    console.warn('Memory not available for agent');
+    return null;
+  }
+
+  try {
+    // 現在のメモリを取得
+    const currentMemory = await getContextWorkingMemory(threadId, resourceId);
+
+    if (!currentMemory) {
+      console.warn('Failed to get current memory');
+      return null;
+    }
+
+    // 更新されたメモリを作成
+    const updatedMemory: ContextMemory = {
+      ...currentMemory,
+      ...updates,
+    };
+
+    // メモリを更新
+    await memory.updateWorkingMemory({
+      threadId,
+      resourceId,
+      workingMemory: JSON.stringify(updatedMemory),
+    });
+
+    return updatedMemory;
+  } catch (error) {
+    console.error('Failed to update working memory:', error);
+    return null;
+  }
+}
+
 export async function resetContextWorkingMemory(
-  agent: Agent<any, any, any>,
   threadId: string,
   resourceId: string
 ) {
-  const memory = await agent.getMemory();
+  const memory = await frontAgent.getMemory();
 
   const resetData: ContextMemory = {
     currentContext: 'front',
@@ -96,6 +138,7 @@ export async function resetContextWorkingMemory(
     planData: {
       status: 'none',
       plan: null,
+      workflowName: null,
     },
   }
   memory?.updateWorkingMemory({

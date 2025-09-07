@@ -1,22 +1,24 @@
+import { CustomUIMessage, mastra } from "@/mastra";
+import { getContextWorkingMemory, storeMessage } from "@/mastra/util";
 import { RuntimeContext } from "@mastra/core/runtime-context";
 import {
   createUIMessageStream,
   createUIMessageStreamResponse,
   generateId,
-  UIMessage,
 } from 'ai';
 
-import { defaultWorkflow } from "@/mastra/features/sample/sampleWorkflow";
-import { storeMessage } from "@/mastra/util";
+export async function handleWorkflow(_: CustomUIMessage[], lastMessage: CustomUIMessage, threadId: string, resourceId: string) {
+  const workflowInfo = lastMessage.metadata?.workflow;
 
-export async function POST(req: Request) {
-  const { messages, threadId, resourceId } = await req.json();
-  const lastMessage = messages[messages.length - 1] as UIMessage;
+  if (!workflowInfo?.name) {
+    throw new Error('Workflow name is required');
+  }
 
+  const workflow = mastra.getWorkflow(workflowInfo?.name);
   // ユーザからのメッセージを保存
   storeMessage(
-    threadId || "default-thread",
-    resourceId || "default-user",
+    threadId,
+    resourceId,
     'user',
     {
       type: 'text',
@@ -34,19 +36,20 @@ export async function POST(req: Request) {
         const runtimeContext = new RuntimeContext();
         runtimeContext.set("messageId", messageId);
         runtimeContext.set("statusId", statusId);
+        runtimeContext.set("resourceId", resourceId);
+        runtimeContext.set("threadId", threadId);
+        const userFeedback = lastMessage.parts.find(part => part.type === 'text')?.text || '';
 
-        // console.log('=== lastMessage ===');
-        // console.log(lastMessage);
-        // console.log('=== messages ===');
-        // console.log(messages);
+        const contextMemory = await getContextWorkingMemory(threadId, resourceId);
 
-        // defaultWorkflowを実行
-        const run = await defaultWorkflow.createRunAsync();
+        const run = await workflow.createRunAsync();
+        console.log('workflowを実行します');
         const stream = run.streamVNext({
           inputData: {
-            userInput: lastMessage.parts.find(part => part.type === 'text')?.text || '',
-            messages: messages,
+            userFeedback,
+            contextMemory,
           },
+          runtimeContext,
         });
         // @see https://mastra.ai/ja/docs/agents/streaming#:~:text=%E3%82%A8%E3%83%BC%E3%82%B8%E3%82%A7%E3%83%B3%E3%83%88%E3%83%99%E3%83%BC%E3%82%B9%E3%81%AE%E3%83%84%E3%83%BC%E3%83%AB%E5%86%85%E3%81%A7%E3%82%B9%E3%83%88%E3%83%AA%E3%83%BC%E3%83%9F%E3%83%B3%E3%82%B0%E3%82%92%E5%88%A9%E7%94%A8%E3%81%99%E3%82%8B%E3%81%AB%E3%81%AF%E3%80%81%E3%82%A8%E3%83%BC%E3%82%B8%E3%82%A7%E3%83%B3%E3%83%88%E3%81%A7%20streamVNext%20%E3%82%92%E5%91%BC%E3%81%B3%E5%87%BA%E3%81%97%E3%80%81writer%20%E3%81%AB%E3%83%91%E3%82%A4%E3%83%97%E3%81%97%E3%81%BE%E3%81%99%3A
         // await stream.pipeTo(writer);
@@ -183,4 +186,5 @@ export async function POST(req: Request) {
   });
 
   return createUIMessageStreamResponse({ stream });
+
 }

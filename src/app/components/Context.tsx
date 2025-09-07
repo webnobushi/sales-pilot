@@ -46,7 +46,7 @@ const Context: React.FC<ContextProps> = ({ context, isAnalyzing }) => {
               <div>
                 <h3 className="text-sm font-semibold text-blue-800 mb-2">ユーザー意図</h3>
                 <p className="text-sm text-blue-700">
-                  {context.userIntent}
+                  {context.userIntent || 'なし'}
                 </p>
               </div>
             </div>

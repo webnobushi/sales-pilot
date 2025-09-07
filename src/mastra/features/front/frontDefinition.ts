@@ -26,10 +26,15 @@ export const frontActionDefinition: ActionDefinition = {
       id: "plan",
       type: "button" as const,
       label: "営業計画に関する相談をする",
-      actionHandler: async () => {
-        console.log('invoke plan!!!');
-        // todo 必要な情報を引数で受け取れるようにしてメッセージを送信する
-        return Promise.resolve({})
+      actionHandler: async ({ emit }) => {
+        try {
+          emit("sendMessage", {
+            text: '営業計画に関して進め方を提案してください',
+          });
+          return true;
+        } catch (error) {
+          return false;
+        }
       },
       canExecute: (context: ContextMemory) => {
         return context.currentContext === "front"
@@ -38,11 +43,10 @@ export const frontActionDefinition: ActionDefinition = {
     {
       id: "listData",
       type: "button" as const,
-      label: "顧客データ取得",
+      label: "顧客リストを取得",
       actionHandler: async () => {
-        // todo 必要な情報を引数で受け取れるようにしてメッセージを送信する
-          console.log('invoke front!!!');
-        return Promise.resolve({})
+        console.log('invoke front!!!');
+        return true;
       },
       canExecute: (context: ContextMemory) => {
         return context.currentContext === "front"

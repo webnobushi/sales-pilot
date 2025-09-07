@@ -1,4 +1,4 @@
-import { getContextWorkingMemory as getContextWorkingMemory, resetContextWorkingMemory } from "@/mastra/util";
+import { getContextWorkingMemory as getContextWorkingMemory, resetContextWorkingMemory, storeMessage } from "@/mastra/util";
 import { mastra } from "@/mastra";
 
 /*
@@ -10,8 +10,9 @@ export async function GET(req: Request) {
   const threadId = searchParams.get('threadId') || "default-thread";
   const resourceId = searchParams.get('resourceId') || "default-user";
 
-  const contextWorkingMemory = await getContextWorkingMemory(frontAgent, threadId, resourceId);
+  const contextWorkingMemory = await getContextWorkingMemory(threadId, resourceId);
 
+  console.log('contextWorkingMemory:', contextWorkingMemory);
   if (contextWorkingMemory) {
     try {
       return Response.json(contextWorkingMemory);
@@ -21,17 +22,21 @@ export async function GET(req: Request) {
     }
   }
 
-  const response = { contextData: null, currentAgent: null };
+  const response = { contextData: null, currentAgent: "front" };
   return Response.json(response);
 }
 
 export async function DELETE(req: Request) {
-  const frontAgent = mastra.getAgent('frontAgent');
   const { searchParams } = new URL(req.url);
   const threadId = searchParams.get('threadId') || "default-thread";
   const resourceId = searchParams.get('resourceId') || "default-user";
 
-  await resetContextWorkingMemory(frontAgent, threadId, resourceId);
+  await resetContextWorkingMemory(threadId, resourceId);
+
+  storeMessage(threadId, resourceId, 'assistant', {
+    type: 'text',
+    content: '会話を中止しました',
+  });
 
   try {
     return Response.json({ success: true });

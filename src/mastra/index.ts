@@ -8,8 +8,11 @@ import { fileURLToPath } from 'url';
 import { contextMemory } from '@/mastra/core/contextMemory';
 import { UIMessage } from 'ai';
 import z from 'zod';
-import { commonWorkingMemorySchema } from '@/mastra/core/contextDefinitions';
+import { commonWorkingMemorySchema, workflowNameEnum } from '@/mastra/core/contextDefinitions';
 import { frontAgent } from '@/mastra/features/front/frontAgent';
+import { planWorkflow } from '@/mastra/features/plan/planWorkflow';
+import { applyPlanWorkflow } from '@/mastra/features/plan/applyPlanWorkflow';
+import { resetContextWorkflow } from '@/mastra/features/reset/resetWorkflow';
 
 const defaultStorage = new LibSQLStore({
   url: `file:${join(dirname(fileURLToPath(import.meta.url)), '..', '..', '.mastra', 'mastra.db')}`,
@@ -17,6 +20,9 @@ const defaultStorage = new LibSQLStore({
 
 const metadataSchema = z.object({
   currentContext: commonWorkingMemorySchema.shape.currentContext,
+  workflow: z.object({
+    name: workflowNameEnum.describe("ワークフローの名前"),
+  }).optional(),
 });
 
 // text以外のUIメッセージ カスタムデータスキーマ
@@ -40,6 +46,9 @@ export const mastra = new Mastra({
     frontAgent,
   },
   workflows: {
+    planWorkflow,
+    resetContextWorkflow,
+    applyPlanWorkflow,
   },
   storage: defaultStorage,
   logger: new PinoLogger({

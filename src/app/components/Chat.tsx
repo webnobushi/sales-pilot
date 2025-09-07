@@ -3,7 +3,7 @@
 import { useAuth } from '@/lib/auth';
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport, UIMessage } from 'ai';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useToast } from '@/app/hooks/use-toast';
 import { CustomUIMessage } from '@/mastra';
 import { ContextMemory } from '@/mastra/core/contextDefinitions';
@@ -122,6 +122,7 @@ export default function Chat() {
     };
 
     loadAgentHistory();
+    syncWorkingMemory()
   }, [threadId, resourceId, toast]);
 
   // 応答開始を検知して時間を計測
@@ -143,6 +144,7 @@ export default function Chat() {
     }
   }, [chatStatus]);
 
+  const isFeedbackMode = useMemo(() => context?.planData.status === 'planned', [context]);
 
   const syncWorkingMemory = async () => {
     const response = await fetch('/api/chat/context', {
@@ -233,13 +235,50 @@ export default function Chat() {
       // 現在のエージェントを指定してメッセージを送信
       const currentContext = context?.currentContext || 'front';
 
-      sendMessage({
-        text: input,
-        metadata: {
-          currentContext,
-        }
-      });
+      if (isFeedbackMode && context?.planData.workflowName) {
+        sendMessage({
+          text: input,
+          metadata: {
+            currentContext,
+            workflow: {
+              name: context?.planData.workflowName,
+            }
+          }
+        });
+      } else {
+        sendMessage({
+          text: input,
+          metadata: {
+            currentContext,
+          }
+        });
+      }
       setInput("");
+    }
+  };
+
+  // アクションからのイベントを処理
+  const handleActionEmit = (event: string, data?: any) => {
+    switch (event) {
+      case 'status':
+        setStatus(data);
+        break;
+
+      case 'sendMessage':
+        console.log('sendMessage by Actions emit:', data);
+        sendMessage({
+          text: data.text,
+          metadata: {
+            currentContext: context?.currentContext || 'front',
+            ...data.metadata
+          }
+        })
+        break;
+      case 'syncWorkingMemory':
+        syncWorkingMemory();
+        break;
+      default:
+        console.log('Unknown action event:', event, data);
     }
   };
 
@@ -288,8 +327,6 @@ export default function Chat() {
       }
     }
   };
-
-  // LLM分析結果の表示
 
   return (
     <div className="max-w-4xl mx-auto p-5">
@@ -421,14 +458,12 @@ export default function Chat() {
       </div>
 
       {/* 利用可能なアクション */}
-      <Actions context={context} onClick={async (action) => {
-        const result = await action.actionHandler({ threadId, resourceId, context });
-        console.log('result:', result);
-        console.log('action:', action);
-        if (result && action.withUpdateMemoryOnComplete) {
-          await syncWorkingMemory();
-        }
-      }} />
+      <Actions
+        context={context}
+        threadId={threadId}
+        resourceId={resourceId}
+        onActionEmit={handleActionEmit}
+      />
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
@@ -440,7 +475,7 @@ export default function Chat() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="メッセージを入力してください... (Enter: 送信, Shift+Enter: 改行)"
+            placeholder={`${isFeedbackMode ? "フィードバックを入力してください..." : "メッセージを入力してください..."} (Enter: 送信, Shift+Enter: 改行)`}
             className="w-full p-3 border border-gray-300 rounded-lg resize-none text-gray-800 bg-white"
             rows={3}
             disabled={chatStatus === 'streaming' || chatStatus === 'submitted'}

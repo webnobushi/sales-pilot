@@ -8,7 +8,9 @@ export type Action = ActionDefinition['actions'][number];
 
 type ActionsProps = {
   context: ContextMemory | null;
-  onClick: (action: Action) => Promise<void>;
+  threadId: string;
+  resourceId: string;
+  onActionEmit?: (event: string, data?: any) => void;
 };
 
 const actionDefinitions: Record<string, ActionDefinition> = {
@@ -17,9 +19,8 @@ const actionDefinitions: Record<string, ActionDefinition> = {
   list: listDataActionDefinition,
 }
 
-export const Actions = ({ context, onClick }: ActionsProps) => {
+export const Actions = ({ context, threadId, resourceId, onActionEmit }: ActionsProps) => {
   const actionDefinition = actionDefinitions[context?.currentContext as keyof typeof actionDefinitions]
-
   if (!actionDefinition || !context) {
     return null;
   }
@@ -27,10 +28,25 @@ export const Actions = ({ context, onClick }: ActionsProps) => {
   const availableActions = actionDefinition.actions.filter(action => action.canExecute(context));
 
   const handleActionClick = async (action: Action) => {
+    if (!action.canExecute(context)) return;
+
     try {
-      await onClick(action);
+      const emit = (event: string, data?: any) => {
+        onActionEmit?.(event, data);
+      };
+
+      const result = await action.actionHandler({
+        threadId,
+        resourceId,
+        context,
+        emit
+      });
+
+      if (result && action.withUpdateMemoryOnComplete) {
+        emit('syncWorkingMemory');
+      }
     } catch (error) {
-      console.error('アクション実行エラー:', error);
+      console.error('Action execution failed:', error);
     }
   };
 

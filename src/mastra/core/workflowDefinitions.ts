@@ -16,14 +16,17 @@ export type ActionDefinition = {
     id: string; // アクションを一意に識別するID
     type: "button" | "select"; // アクションの種類
     label: string | ((params: any) => string); // ユーザーに表示するアクションのラベル
-    actionHandler: (params: {
-      threadId: string;
-      resourceId: string;
-      context: ContextMemory | null;
-      
-    }) => Promise<boolean>;
+    actionHandler: (params: ActionHandlerParams) => Promise<boolean>;
     withUpdateMemoryOnComplete?: boolean; // アクション実行後にメモリを更新する
     canExecute: (context: ContextMemory) => boolean;
   }>;
   immediateExecution: boolean; // 即時実行する処理かどうか
+};
+
+export type ActionHandlerParams = {
+  threadId: string;
+  resourceId: string;
+  context: ContextMemory | null;
+  // todo 型をちゃんと定義する(できればeventごとにdataの型を定義する)
+  emit: (event: string, data?: any) => void;
 };
