@@ -19,7 +19,7 @@ export const contextMemorySchema = z.object({
   })).optional().describe("LLMが判定する現在収集済みの情報リスト"),
 
   planData: z.object({
-    status: z.enum(["none", "planned", "completed"]).default("none").describe("計画の現在の状態：none（なし）、planning（計画中）、planned（計画済み）、executing（実行中）、completed（完了）"),
+    status: z.enum(["none", "planned", "completed"]).default("none").describe("計画の現在の状態"),
     plan: z.string().nullable().describe("計画の詳細データ（オブジェクト、配列など）"),
     workflowName: workflowNameEnum.optional().describe("現在実行中のワークフローの名前"),
   }).describe("計画データの管理（手動更新）"),
